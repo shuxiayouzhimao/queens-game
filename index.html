@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Queens · 皇后谜题</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 60%, #9b59b6 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 24px 12px 40px;
+  }
+  .wrap {
+    width: 100%;
+    max-width: 620px;
+    background: rgba(255,255,255,.96);
+    border-radius: 22px;
+    box-shadow: 0 24px 60px rgba(20,10,60,.35);
+    padding: 22px 22px 26px;
+  }
+  header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: 26px;
+    background: linear-gradient(90deg, #764ba2, #e2557c);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: 1px;
+  }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; min-width: 0; justify-content: flex-end; }
+  .controls select { min-width: 0; max-width: 130px; }
+  .controls select, .controls button {
+    font-size: 14px;
+    border: none;
+    border-radius: 10px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: transform .08s, box-shadow .15s;
+  }
+  .controls select { background: #f0eef7; color: #4a3f6b; }
+  .controls button { background: linear-gradient(135deg,#764ba2,#a05ce0); color:#fff; }
+  .controls button.secondary { background: #eef0f6; color: #4a3f6b; }
+  .controls button:active { transform: scale(.95); }
+  .statusbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #f6f4fb;
+    border-radius: 12px;
+    padding: 8px 14px;
+    margin-bottom: 14px;
+    font-size: 15px;
+    color: #4a3f6b;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .boardWrap { position: relative; border-radius: 14px; overflow: hidden; }
+  .board {
+    display: grid;
+    width: 100%;
+    border: 3px solid #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px rgba(60,40,110,.18);
+    touch-action: manipulation;
+    container-type: inline-size;
+  }
+  .cell {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 1 / 1;
+    cursor: pointer;
+    border: 3px solid transparent;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .75);
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    transition: filter .1s;
+    position: relative;
+    line-height: 1;
+    font-size: 24px;
+  }
+  @supports (font-size: 1cqw) {
+    .cell { font-size: calc(100cqw / var(--n, 7) * 0.62); }
+  }
+  .cell:hover { filter: brightness(1.07); }
+  .cell span { position: relative; z-index: 1; pointer-events: none; }
+  .cell.m span { color: rgba(30,20,60,.62); font-weight: 800; }
+  .cell.q::before {
+    content: "";
+    position: absolute;
+    inset: 10%;
+    border-radius: 50%;
+    background: rgba(255,255,255,.95);
+    box-shadow: 0 3px 8px rgba(0,0,0,.28);
+    animation: pop .18s ease-out;
+  }
+  .cell.q span { filter: drop-shadow(0 1px 1px rgba(0,0,0,.2)); }
+  .cell.bad::before { background: #e63946; animation: pop .18s ease-out, shake .35s ease; }
+  .cell.bad span { filter: none; }
+  @keyframes pop { 0% { transform: scale(.4); } 70% { transform: scale(1.12); } 100% { transform: scale(1); } }
+  @keyframes shake { 0%,100%{translate:0 0} 25%{translate:-3px 0} 50%{translate:3px 0} 75%{translate:-2px 0} }
+  .win {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    background: rgba(30,15,60,.72);
+    backdrop-filter: blur(3px);
+    color: #fff;
+    text-align: center;
+    animation: fadein .4s ease;
+    z-index: 10;
+  }
+  .win.hidden { display: none; }
+  .win .big { font-size: 40px; animation: bounce .6s ease infinite alternate; }
+  .win h2 { font-size: 28px; letter-spacing: 2px; }
+  .win p { font-size: 16px; opacity: .9; font-variant-numeric: tabular-nums; }
+  .win button {
+    margin-top: 8px;
+    border: none;
+    border-radius: 12px;
+    padding: 10px 22px;
+    font-size: 15px;
+    font-weight: 700;
+    background: linear-gradient(135deg,#ff9a56,#ff5e8e);
+    color: #fff;
+    cursor: pointer;
+  }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes bounce { from { transform: translateY(0) scale(1); } to { transform: translateY(-8px) scale(1.08); } }
+  .confetti {
+    position: absolute;
+    top: -16px;
+    width: 9px;
+    height: 14px;
+    border-radius: 2px;
+    z-index: 5;
+    animation: fall linear forwards;
+  }
+  @keyframes fall { to { transform: translateY(640px) rotate(760deg); opacity: .9; } }
+  .rules {
+    margin-top: 14px;
+    font-size: 13px;
+    line-height: 1.7;
+    color: #6b6386;
+    background: #f6f4fb;
+    border-radius: 12px;
+    padding: 10px 14px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>👑 Queens</h1>
+    <div class="controls">
+      <select id="size"></select>
+      <button id="btnRestart" class="secondary" title="清空本局重新开始">↺ 重开</button>
+      <button id="btnNew">🔄 新谜题</button>
+    </div>
+  </header>
+  <div class="statusbar">
+    <span id="timer">⏱ 00:00</span>
+    <span id="progress"></span>
+  </div>
+  <div class="boardWrap">
+    <div id="board" class="board"></div>
+    <div id="winOverlay" class="win hidden">
+      <div class="big">👑</div>
+      <h2>胜利！</h2>
+      <p id="winText"></p>
+      <button id="btnNext">再来一局</button>
+    </div>
+  </div>
+  <p class="rules">
+    🎯 <b>目标</b>：在每行、每列和每个颜色区域中<b>正好放置一个 Queen</b>。<br>
+    🖱️ <b>操作</b>：<b>单击</b>放置 X（标记无法放置 Queen 的位置），<b>双击</b>放置 Queen；再次单击 X 可取消，单击 Queen 可收回。桌面端也可<b>右键</b>直接放置/收回 Queen。<br>
+    ⚠️ 两个 Queen <b>不能彼此相邻</b>，对角线相邻也不行。冲突的 Queen 会变红抖动。每局谜题唯一解！
+  </p>
+</div>
+
+<script>
+"use strict";
+/* ============ ALGO START ============ */
+function shuffleArr(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// 随机生成一个满足「行列不重、相邻行皇后不相邻」的完整解，pos[r] = c
+function randomPermutationSolution(n) {
+  const colUsed = new Array(n).fill(false);
+  const pos = new Array(n);
+  function bt(r) {
+    if (r === n) return true;
+    for (const c of shuffleArr(Array.from({ length: n }, (_, i) => i))) {
+      if (colUsed[c]) continue;
+      if (r > 0 && Math.abs(c - pos[r - 1]) <= 1) continue; // 不能紧邻(含对角)
+      colUsed[c] = true; pos[r] = c;
+      if (bt(r + 1)) return true;
+      colUsed[c] = false;
+    }
+    return false;
+  }
+  return bt(0) ? pos : null;
+}
+
+// 多源随机竞争扩张：每个皇后作为种子长出一个连通色区，返回 region[r][c]
+function growRegions(n, seeds) {
+  const region = Array.from({ length: n }, () => new Array(n).fill(-1));
+  const frontier = [];
+  const inF = new Set();
+  const push = (r, c, reg) => {
+    if (r < 0 || r >= n || c < 0 || c >= n) return;
+    const k = r * n + c;
+    if (region[r][c] !== -1 || inF.has(k)) return;
+    inF.add(k); frontier.push({ r, c, reg });
+  };
+  seeds.forEach((s, i) => { region[s.r][s.c] = i; });
+  seeds.forEach((s, i) => {
+    push(s.r - 1, s.c, i); push(s.r + 1, s.c, i);
+    push(s.r, s.c - 1, i); push(s.r, s.c + 1, i);
+  });
+  while (frontier.length) {
+    const idx = Math.floor(Math.random() * frontier.length);
+    const f = frontier[idx];
+    frontier[idx] = frontier[frontier.length - 1]; frontier.pop();
+    inF.delete(f.r * n + f.c);
+    if (region[f.r][f.c] !== -1) continue;
+    region[f.r][f.c] = f.reg;
+    push(f.r - 1, f.c, f.reg); push(f.r + 1, f.c, f.reg);
+    push(f.r, f.c - 1, f.reg); push(f.r, f.c + 1, f.reg);
+  }
+  return region;
+}
+
+// 回溯求解计数（到 limit 停）。相邻约束只需检查相邻行。
+function countSolutions(n, regionOf, limit) {
+  const colUsed = new Array(n).fill(false);
+  const regUsed = new Array(n).fill(false);
+  const pos = new Array(n);
+  let count = 0;
+  function bt(r) {
+    if (count >= limit) return;
+    if (r === n) { count++; return; }
+    for (let c = 0; c < n; c++) {
+      if (colUsed[c]) continue;
+      const reg = regionOf[r][c];
+      if (regUsed[reg]) continue;
+      if (r > 0 && Math.abs(c - pos[r - 1]) <= 1) continue;
+      colUsed[c] = true; regUsed[reg] = true; pos[r] = c;
+      bt(r + 1);
+      colUsed[c] = false; regUsed[reg] = false;
+      if (count >= limit) return;
+    }
+  }
+  bt(0);
+  return count;
+}
+
+// 数解并返回至多 limit 个解，用于判断唯一性并批量消灭多余解
+function findSolutions(n, regionOf, limit) {
+  const colUsed = new Array(n).fill(false);
+  const regUsed = new Array(n).fill(false);
+  const pos = new Array(n);
+  const sols = [];
+  function bt(r) {
+    if (sols.length >= limit) return;
+    if (r === n) { sols.push(pos.slice()); return; }
+    for (let c = 0; c < n; c++) {
+      if (colUsed[c]) continue;
+      const reg = regionOf[r][c];
+      if (regUsed[reg]) continue;
+      if (r > 0 && Math.abs(c - pos[r - 1]) <= 1) continue;
+      colUsed[c] = true; regUsed[reg] = true; pos[r] = c;
+      bt(r + 1);
+      colUsed[c] = false; regUsed[reg] = false;
+      if (sols.length >= limit) return;
+    }
+  }
+  bt(0);
+  return { count: sols.length, sols };
+}
+
+// 区域是否连通（且非空）
+function regionConnected(n, regions, g) {
+  let size = 0, start = null;
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    if (regions[r][c] === g) { size++; if (!start) start = [r, c]; }
+  }
+  if (!start) return false;
+  const vis = new Set([start[0] * n + start[1]]);
+  const q = [start];
+  while (q.length) {
+    const [r, c] = q.pop();
+    [[r - 1, c], [r + 1, c], [r, c - 1], [r, c + 1]].forEach(([rr, cc]) => {
+      if (rr >= 0 && rr < n && cc >= 0 && cc < n && regions[rr][cc] === g && !vis.has(rr * n + cc)) {
+        vis.add(rr * n + cc); q.push([rr, cc]);
+      }
+    });
+  }
+  return vis.size === size;
+}
+
+// 随机扰动：把一个随机的非皇后边界格换到相邻区域（保持连通），用于跳出局部僵局
+function perturbOnce(n, regions, queenKeys) {
+  const cand = [];
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    if (queenKeys.has(r * n + c)) continue;
+    for (const [dr, dc] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+      const rr = r + dr, cc = c + dc;
+      if (rr >= 0 && rr < n && cc >= 0 && cc < n && regions[rr][cc] !== regions[r][c]) {
+        cand.push([r, c]); break;
+      }
+    }
+  }
+  for (const [r, c] of shuffleArr(cand)) {
+    const ga = regions[r][c];
+    const bs = new Set();
+    [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([dr, dc]) => {
+      const rr = r + dr, cc = c + dc;
+      if (rr >= 0 && rr < n && cc >= 0 && cc < n && regions[rr][cc] !== ga) bs.add(regions[rr][cc]);
+    });
+    for (const b of shuffleArr([...bs])) {
+      regions[r][c] = b;
+      if (regionConnected(n, regions, ga) && regionConnected(n, regions, b)) return true;
+      regions[r][c] = ga;
+    }
+  }
+  return false;
+}
+
+// 生成唯一解谜题：随机着色 + 局部改进消灭多余解 + 随机扰动跳出僵局
+// 引理：把多余解 T 的皇后格 g 重划入相邻区，只会消灭「以 g 为皇后」的解，
+// 不会产生新解，也不影响主解 S（g 不是 S 的皇后）→ 解数单调不增
+function generatePuzzle(n, maxAttempts) {
+  maxAttempts = maxAttempts || 20;
+  const budget = n >= 11 ? 2600 : n === 10 ? 1800 : 1200; // ms 时间预算，超时返回当前最优
+  const t0 = Date.now();
+  let fallback = null;
+  for (let a = 0; a < maxAttempts; a++) {
+    const sol = randomPermutationSolution(n);
+    if (!sol) return null;
+    const regions = growRegions(n, sol.map((c, r) => ({ r, c })));
+    const queenKeys = new Set(sol.map((c, r) => r * n + c));
+    const cap = n >= 10 ? 6 : 3;
+    const K = n >= 10 ? 8 : 2; // 大盘一次收集更多多余解批量消灭
+    for (let step = 0; step < 400; step++) {
+      if (Date.now() - t0 > budget && fallback) return fallback;
+      const res = findSolutions(n, regions, K);
+      if (res.count === 1) return { n, sol, regions };
+      fallback = { n, sol, regions };
+      // 差异格并集：所有多余解 T≠S 中与 S 不同的皇后格
+      const diffs = [];
+      const seen = new Set();
+      for (const T of res.sols) {
+        for (let r = 0; r < n; r++) {
+          if (T[r] === sol[r]) continue;
+          const k = r * n + T[r];
+          if (!seen.has(k)) { seen.add(k); diffs.push([r, T[r]]); }
+        }
+      }
+      shuffleArr(diffs);
+      let moved = 0;
+      for (const [gr, gc] of diffs) { // 一步重划多个格子，加速收敛
+        if (moved >= cap) break;
+        const ga = regions[gr][gc];
+        const bs = new Set();
+        [[-1, 0], [1, 0], [0, -1], [0, 1]].forEach(([dr, dc]) => {
+          const rr = gr + dr, cc = gc + dc;
+          if (rr >= 0 && rr < n && cc >= 0 && cc < n && regions[rr][cc] !== ga) bs.add(regions[rr][cc]);
+        });
+        for (const b of shuffleArr([...bs])) {
+          regions[gr][gc] = b;
+          if (regionConnected(n, regions, ga) && regionConnected(n, regions, b)) { moved++; break; }
+          regions[gr][gc] = ga;
+        }
+      }
+      if (!moved && !perturbOnce(n, regions, queenKeys)) break; // 僵局且扰动失败，整体重来
+    }
+  }
+  return fallback; // 极小概率：退化为多解谜题（仍可玩）
+}
+/* ============ ALGO END ============ */
+
+/* ============ UI ============ */
+// 12 个色相均匀分布、彼此可辨的颜色；每个色区分配唯一颜色
+const PALETTE = [
+  "#ff9999", "#ffb366", "#ffdd66", "#e1ed66", "#99dd88", "#66d9b3",
+  "#66cce0", "#7fa9f0", "#a093f2", "#c08fe0", "#e68fd6", "#f78fb5"
+];
+
+let N = 7;
+let puzzle = null;
+let regionColors = null;
+let queens = new Set();   // key = r*N+c
+let marks = new Set();    // 手动 ✕
+let won = false;
+let sec = 0, timerInt = null, started = false;
+let lastPlaced = -1;
+let lastTap = { k: -1, t: 0 }; // 单击/双击判定
+
+const boardEl = document.getElementById("board");
+const sizeEl = document.getElementById("size");
+const timerEl = document.getElementById("timer");
+const progressEl = document.getElementById("progress");
+const winOverlay = document.getElementById("winOverlay");
+const winText = document.getElementById("winText");
+
+[6, 7, 8, 9, 10, 11].forEach(n => {
+  const o = document.createElement("option");
+  o.value = n;
+  o.textContent = `${n} × ${n}` + (n <= 6 ? " · 简单" : n <= 8 ? " · 中等" : n <= 9 ? " · 困难" : " · 大师");
+  sizeEl.appendChild(o);
+});
+sizeEl.value = N;
+
+// 每个色区分配各不相同的颜色（打乱调色板后依次取用）
+function assignColors(regions) {
+  const pool = shuffleArr(PALETTE.slice());
+  const color = new Array(N);
+  for (let g = 0; g < N; g++) color[g] = pool[g % pool.length];
+  return color;
+}
+
+function computeConflicts() {
+  const bad = new Set();
+  const q = [...queens].map(k => ({ r: (k / N) | 0, c: k % N }));
+  for (let i = 0; i < q.length; i++) for (let j = i + 1; j < q.length; j++) {
+    const a = q[i], b = q[j];
+    const hit = a.r === b.r || a.c === b.c ||
+      puzzle.regions[a.r][a.c] === puzzle.regions[b.r][b.c] ||
+      (Math.abs(a.r - b.r) <= 1 && Math.abs(a.c - b.c) <= 1);
+    if (hit) { bad.add(a.r * N + a.c); bad.add(b.r * N + b.c); }
+  }
+  return bad;
+}
+
+function fmt(t) {
+  const m = String(Math.floor(t / 60)).padStart(2, "0");
+  const s = String(t % 60).padStart(2, "0");
+  return `${m}:${s}`;
+}
+
+function startTimer() {
+  if (started) return;
+  started = true;
+  timerInt = setInterval(() => { sec++; timerEl.textContent = `⏱ ${fmt(sec)}`; }, 1000);
+}
+function stopTimer() { if (timerInt) { clearInterval(timerInt); timerInt = null; } }
+
+function render() {
+  boardEl.style.gridTemplateColumns = `repeat(${N}, 1fr)`;
+  boardEl.style.setProperty("--n", N);
+  const bad = computeConflicts();
+  let html = "";
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const k = r * N + c, reg = puzzle.regions[r][c];
+    const isQ = queens.has(k), isM = !isQ && marks.has(k);
+    const top = r === 0 || puzzle.regions[r - 1][c] !== reg;
+    const left = c === 0 || puzzle.regions[r][c - 1] !== reg;
+    let cls = "cell", content = "";
+    if (isQ) {
+      cls += " q" + (bad.has(k) ? " bad" : "");
+      content = "<span>👑</span>";
+    } else if (isM) {
+      cls += " m"; content = "<span>✕</span>";
+    }
+    const style = `background:${regionColors[reg]};` +
+      (top ? "border-top-color:#fff;" : "") + (left ? "border-left-color:#fff;" : "");
+    html += `<div class="${cls}" data-k="${k}" style="${style}">${content}</div>`;
+  }
+  boardEl.innerHTML = html;
+  progressEl.textContent = `👑 ${queens.size}/${N}   ✕ ${marks.size}`;
+  return bad;
+}
+
+function update() {
+  const bad = render();
+  if (!won && queens.size === N && bad.size === 0) {
+    won = true;
+    stopTimer();
+    winText.textContent = `${N} × ${N} · 用时 ${fmt(sec)}`;
+    winOverlay.classList.remove("hidden");
+    confetti();
+  }
+}
+
+function confetti() {
+  const colors = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#f78c6b", "#c77dff"];
+  for (let i = 0; i < 36; i++) {
+    const el = document.createElement("div");
+    el.className = "confetti";
+    el.style.left = Math.random() * 100 + "%";
+    el.style.background = colors[i % colors.length];
+    el.style.animationDuration = (1.2 + Math.random() * 1.6) + "s";
+    el.style.animationDelay = Math.random() * 0.5 + "s";
+    document.querySelector(".boardWrap").appendChild(el);
+  }
+}
+
+function toggleQueen(k) {
+  if (queens.has(k)) {
+    queens.delete(k);
+    lastPlaced = -1;
+  } else {
+    queens.add(k);
+    marks.delete(k);
+    lastPlaced = k;
+  }
+}
+
+// 单击：放置/取消 X；双击（320ms 内同格再击）：放置/收回 Queen
+function clickCell(k) {
+  if (won) return;
+  startTimer();
+  const now = Date.now();
+  const isDouble = now - lastTap.t < 320 && lastTap.k === k;
+  if (isDouble) {
+    lastTap = { k: -1, t: 0 };
+    if (!queens.has(k)) toggleQueen(k);
+    update();
+    return;
+  }
+  lastTap = { k, t: now };
+  if (queens.has(k)) {
+    queens.delete(k);
+    lastPlaced = -1;
+  } else if (marks.has(k)) {
+    marks.delete(k);
+  } else {
+    marks.add(k);
+  }
+  update();
+}
+
+boardEl.addEventListener("click", e => {
+  const cell = e.target.closest(".cell");
+  if (cell) clickCell(+cell.dataset.k);
+});
+boardEl.addEventListener("contextmenu", e => {
+  e.preventDefault();
+  const cell = e.target.closest(".cell");
+  if (!cell || won) return;
+  startTimer();
+  toggleQueen(+cell.dataset.k);
+  lastTap = { k: -1, t: 0 };
+  update();
+});
+
+function newGame(n) {
+  N = n;
+  puzzle = generatePuzzle(n);
+  regionColors = assignColors(puzzle.regions);
+  queens = new Set();
+  marks = new Set();
+  won = false; sec = 0; started = false; lastPlaced = -1;
+  lastTap = { k: -1, t: 0 };
+  stopTimer();
+  timerEl.textContent = "⏱ 00:00";
+  winOverlay.classList.add("hidden");
+  document.querySelectorAll(".confetti").forEach(el => el.remove());
+  update();
+}
+
+sizeEl.addEventListener("change", () => newGame(+sizeEl.value));
+document.getElementById("btnNew").addEventListener("click", () => newGame(N));
+document.getElementById("btnNext").addEventListener("click", () => newGame(N));
+document.getElementById("btnRestart").addEventListener("click", () => {
+  queens = new Set(); marks = new Set(); won = false; lastPlaced = -1;
+  lastTap = { k: -1, t: 0 };
+  stopTimer(); sec = 0; started = false;
+  timerEl.textContent = "⏱ 00:00";
+  winOverlay.classList.add("hidden");
+  document.querySelectorAll(".confetti").forEach(el => el.remove());
+  update();
+});
+
+newGame(N);
+</script>
+</body>
+</html>
