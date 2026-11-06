@@ -227,31 +227,103 @@ function randomPermutationSolution(n) {
   return bt(0) ? pos : null;
 }
 
-// 多源随机竞争扩张：每个皇后作为种子长出一个连通色区，返回 region[r][c]
+// 区域生长：距离场(Voronoi)归属 + 连通修复 + 凸起平滑，生成圆润规整的色区
 function growRegions(n, seeds) {
+  const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
   const region = Array.from({ length: n }, () => new Array(n).fill(-1));
-  const frontier = [];
-  const inF = new Set();
-  const push = (r, c, reg) => {
-    if (r < 0 || r >= n || c < 0 || c >= n) return;
-    const k = r * n + c;
-    if (region[r][c] !== -1 || inF.has(k)) return;
-    inF.add(k); frontier.push({ r, c, reg });
-  };
+  // 1) 每个种子带轻微随机偏移，按曼哈顿距离把格子分给最近的种子 → 边界近似平滑的 Voronoi 块
+  const bias = seeds.map(() => Math.random() * 2.4);
+  for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+    let best = 0, bd = Infinity;
+    for (let s = 0; s < n; s++) {
+      const d = Math.abs(r - seeds[s].r) + Math.abs(c - seeds[s].c) + bias[s];
+      if (d < bd) { bd = d; best = s; }
+    }
+    region[r][c] = best;
+  }
   seeds.forEach((s, i) => { region[s.r][s.c] = i; });
-  seeds.forEach((s, i) => {
-    push(s.r - 1, s.c, i); push(s.r + 1, s.c, i);
-    push(s.r, s.c - 1, i); push(s.r, s.c + 1, i);
-  });
-  while (frontier.length) {
-    const idx = Math.floor(Math.random() * frontier.length);
-    const f = frontier[idx];
-    frontier[idx] = frontier[frontier.length - 1]; frontier.pop();
-    inF.delete(f.r * n + f.c);
-    if (region[f.r][f.c] !== -1) continue;
-    region[f.r][f.c] = f.reg;
-    push(f.r - 1, f.c, f.reg); push(f.r + 1, f.c, f.reg);
-    push(f.r, f.c - 1, f.reg); push(f.r, f.c + 1, f.reg);
+  // 2) 连通修复：每区从种子 BFS，未连通的格子并入包围它最多的相邻区
+  for (let g = 0; g < n; g++) {
+    const vis = new Set([seeds[g].r * n + seeds[g].c]);
+    const q = [[seeds[g].r, seeds[g].c]];
+    while (q.length) {
+      const [r, c] = q.pop();
+      for (const [dr, dc] of DIRS) {
+        const rr = r + dr, cc = c + dc;
+        if (rr >= 0 && rr < n && cc >= 0 && cc < n && region[rr][cc] === g && !vis.has(rr * n + cc)) {
+          vis.add(rr * n + cc); q.push([rr, cc]);
+        }
+      }
+    }
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (region[r][c] === g && !vis.has(r * n + c)) {
+        const cnt = new Map();
+        for (const [dr, dc] of DIRS) {
+          const rr = r + dr, cc = c + dc;
+          if (rr >= 0 && rr < n && cc >= 0 && cc < n) {
+            const x = region[rr][cc];
+            if (x !== g) cnt.set(x, (cnt.get(x) || 0) + 1);
+          }
+        }
+        let bestR = g, bestC = -1;
+        for (const [x, v] of cnt) if (v > bestC) { bestC = v; bestR = x; }
+        region[r][c] = bestR;
+      }
+    }
+  }
+  // 3) 平滑迭代：把三面被同一邻居包围的「凸起单格」并入该邻居（保持两区连通、种子不动）
+  const isSeed = (r, c) => seeds.some(s => s.r === r && s.c === c);
+  for (let iter = 0; iter < 4; iter++) {
+    let changed = false;
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+      if (isSeed(r, c)) continue;
+      const a = region[r][c];
+      const cnt = new Map();
+      for (const [dr, dc] of DIRS) {
+        const rr = r + dr, cc = c + dc;
+        if (rr >= 0 && rr < n && cc >= 0 && cc < n) {
+          const x = region[rr][cc];
+          if (x !== a) cnt.set(x, (cnt.get(x) || 0) + 1);
+        }
+      }
+      if (cnt.size !== 1) continue;
+      const b = [...cnt.keys()][0];
+      if (cnt.get(b) < 3) continue;
+      region[r][c] = b;
+      if (!regionConnected(n, region, a) || !regionConnected(n, region, b)) region[r][c] = a;
+      else changed = true;
+    }
+    if (!changed) break;
+  }
+  // 4) 面积平衡：面积过小的区域从相邻区域借格子，避免单格碎片
+  const countAreas = () => {
+    const a = new Array(n).fill(0);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) a[region[r][c]]++;
+    return a;
+  };
+  for (let iter = 0; iter < 2; iter++) {
+    const areas = countAreas();
+    for (let g = 0; g < n; g++) {
+      if (areas[g] >= 3) continue;
+      const cand = [];
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        const h = region[r][c];
+        if (h === g) continue;
+        const adj = DIRS.some(([dr, dc]) => {
+          const rr = r + dr, cc = c + dc;
+          return rr >= 0 && rr < n && cc >= 0 && cc < n && region[rr][cc] === g;
+        });
+        if (adj && areas[h] > 4) cand.push([r, c, h]);
+      }
+      shuffleArr(cand);
+      for (const [r, c, h] of cand) {
+        if (areas[g] >= 3) break;
+        if (areas[h] <= 4) continue;
+        region[r][c] = g;
+        if (regionConnected(n, region, h) && regionConnected(n, region, g)) { areas[g]++; areas[h]--; }
+        else region[r][c] = h;
+      }
+    }
   }
   return region;
 }
@@ -406,10 +478,10 @@ function generatePuzzle(n, maxAttempts) {
 /* ============ ALGO END ============ */
 
 /* ============ UI ============ */
-// 12 个色相均匀分布、彼此可辨的颜色；每个色区分配唯一颜色
+// 12 个柔和统一、彼此可辨的粉彩色；每个色区分配唯一颜色
 const PALETTE = [
-  "#ff9999", "#ffb366", "#ffdd66", "#e1ed66", "#99dd88", "#66d9b3",
-  "#66cce0", "#7fa9f0", "#a093f2", "#c08fe0", "#e68fd6", "#f78fb5"
+  "#ffb3c1", "#ffc9a3", "#ffe08a", "#dceb9c", "#aee0a0", "#93e0c8",
+  "#93dbe6", "#a6bdf0", "#b8a9f2", "#d4a7ea", "#f2a7e2", "#f7a9b8"
 ];
 
 let N = 7;
