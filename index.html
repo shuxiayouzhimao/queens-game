@@ -478,10 +478,10 @@ function generatePuzzle(n, maxAttempts) {
 /* ============ ALGO END ============ */
 
 /* ============ UI ============ */
-// 12 个柔和统一、彼此可辨的粉彩色；每个色区分配唯一颜色
+// 12 色：色相每 30° 均匀分布 + 明度深浅交错，任意两色可辨（最小 RGB 距离 ≈35）
 const PALETTE = [
-  "#ffb3c1", "#ffc9a3", "#ffe08a", "#dceb9c", "#aee0a0", "#93e0c8",
-  "#93dbe6", "#a6bdf0", "#b8a9f2", "#d4a7ea", "#f2a7e2", "#f7a9b8"
+  "#e9a0a0", "#e2b283", "#e9e9a0", "#b3e283", "#a0e9a0", "#83e2b3",
+  "#a0e9e9", "#83b2e2", "#a0a0e9", "#b283e2", "#e9a0e9", "#e283b3"
 ];
 
 let N = 7;
@@ -509,12 +509,40 @@ const winText = document.getElementById("winText");
 });
 sizeEl.value = N;
 
-// 每个色区分配各不相同的颜色（打乱调色板后依次取用）
+// 颜色两两之间的 RGB 距离（用于挑选对比最强的颜色）
+function hexDist(a, b) {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  const ar = (pa >> 16) & 255, ag = (pa >> 8) & 255, ab = pa & 255;
+  const br = (pb >> 16) & 255, bg = (pb >> 8) & 255, bb = pb & 255;
+  return Math.sqrt((ar - br) ** 2 + (ag - bg) ** 2 + (ab - bb) ** 2);
+}
+
+// 每个色区分配各不相同的颜色；相邻色区优先选择对比最大的颜色
 function assignColors(regions) {
-  const pool = shuffleArr(PALETTE.slice());
-  const color = new Array(N);
-  for (let g = 0; g < N; g++) color[g] = pool[g % pool.length];
-  return color;
+  const adj = Array.from({ length: N }, () => new Set());
+  for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+    const a = regions[r][c];
+    if (r + 1 < N) { const b = regions[r + 1][c]; if (a !== b) { adj[a].add(b); adj[b].add(a); } }
+    if (c + 1 < N) { const b = regions[r][c + 1]; if (a !== b) { adj[a].add(b); adj[b].add(a); } }
+  }
+  const order = Array.from({ length: N }, (_, i) => i).sort((a, b) => adj[b].size - adj[a].size);
+  const color = new Array(N).fill(-1);
+  const used = new Set();
+  for (const g of order) {
+    let best = -1, bestScore = -1;
+    for (let i = 0; i < PALETTE.length; i++) {
+      if (used.has(i)) continue; // 全局唯一
+      let minD = Infinity;
+      for (const nb of adj[g]) {
+        if (color[nb] >= 0) minD = Math.min(minD, hexDist(PALETTE[i], PALETTE[color[nb]]));
+      }
+      const score = minD === Infinity ? Infinity : minD;
+      if (score > bestScore) { bestScore = score; best = i; }
+    }
+    if (best < 0) best = 0;
+    color[g] = best; used.add(best);
+  }
+  return color.map(i => PALETTE[i]);
 }
 
 function computeConflicts() {
