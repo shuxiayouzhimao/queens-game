@@ -227,16 +227,18 @@ function randomPermutationSolution(n) {
   return bt(0) ? pos : null;
 }
 
-// 区域生长：距离场(Voronoi)归属 + 连通修复 + 凸起平滑，生成圆润规整的色区
+// 区域生长：加权距离场(Voronoi)归属 + 连通修复 + 凸起平滑，生成大小参差、互相咬合的色区
 function growRegions(n, seeds) {
   const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
   const region = Array.from({ length: n }, () => new Array(n).fill(-1));
-  // 1) 每个种子带轻微随机偏移，按曼哈顿距离把格子分给最近的种子 → 边界近似平滑的 Voronoi 块
-  const bias = seeds.map(() => Math.random() * 2.4);
+  // 1) 每个种子有强有弱（权重）且带偏移；每格再加轻微噪声 → 区域大小参差、边界互相咬合
+  const weight = seeds.map(() => 0.68 + Math.random() * 0.8); // 0.68~1.48：大小拉开差距
+  const bias = seeds.map(() => Math.random() * 1.8);
   for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
     let best = 0, bd = Infinity;
     for (let s = 0; s < n; s++) {
-      const d = Math.abs(r - seeds[s].r) + Math.abs(c - seeds[s].c) + bias[s];
+      const d = (Math.abs(r - seeds[s].r) + Math.abs(c - seeds[s].c)) / weight[s] +
+        bias[s] + Math.random() * 0.55; // 格子级噪声：制造自然咬合
       if (d < bd) { bd = d; best = s; }
     }
     region[r][c] = best;
@@ -295,16 +297,44 @@ function growRegions(n, seeds) {
     }
     if (!changed) break;
   }
-  // 4) 面积平衡：面积过小的区域从相邻区域借格子，避免单格碎片
+  // 4) 再平衡：超大区域吐格子给邻居、过小区域借格子，最终面积落在 [minA, maxA] 的参差区间
   const countAreas = () => {
     const a = new Array(n).fill(0);
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) a[region[r][c]]++;
     return a;
   };
-  for (let iter = 0; iter < 2; iter++) {
+  const minA = Math.max(2, Math.round(n * 0.45));
+  const maxA = Math.round(n * 1.7);
+  for (let iter = 0; iter < 6; iter++) {
     const areas = countAreas();
+    let changed = false;
+    // 4a) 过大 → 把边缘格吐给相邻且不超限的区域
     for (let g = 0; g < n; g++) {
-      if (areas[g] >= 3) continue;
+      if (areas[g] <= maxA) continue;
+      const cells = [];
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        if (region[r][c] !== g || isSeed(r, c)) continue;
+        const nb = new Set();
+        for (const [dr, dc] of DIRS) {
+          const rr = r + dr, cc = c + dc;
+          if (rr >= 0 && rr < n && cc >= 0 && cc < n && region[rr][cc] !== g) nb.add(region[rr][cc]);
+        }
+        if (nb.size) cells.push([r, c, nb]);
+      }
+      shuffleArr(cells);
+      for (const [r, c, nb] of cells) {
+        if (areas[g] <= maxA) break;
+        for (const h of nb) {
+          if (areas[h] >= maxA) continue;
+          region[r][c] = h;
+          if (regionConnected(n, region, g) && regionConnected(n, region, h)) { areas[g]--; areas[h]++; changed = true; break; }
+          region[r][c] = g;
+        }
+      }
+    }
+    // 4b) 过小 → 从相邻区域借格子
+    for (let g = 0; g < n; g++) {
+      if (areas[g] >= minA) continue;
       const cand = [];
       for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
         const h = region[r][c];
@@ -313,17 +343,18 @@ function growRegions(n, seeds) {
           const rr = r + dr, cc = c + dc;
           return rr >= 0 && rr < n && cc >= 0 && cc < n && region[rr][cc] === g;
         });
-        if (adj && areas[h] > 4) cand.push([r, c, h]);
+        if (adj && areas[h] > minA) cand.push([r, c, h]);
       }
       shuffleArr(cand);
       for (const [r, c, h] of cand) {
-        if (areas[g] >= 3) break;
-        if (areas[h] <= 4) continue;
+        if (areas[g] >= minA) break;
+        if (areas[h] <= minA) continue;
         region[r][c] = g;
-        if (regionConnected(n, region, h) && regionConnected(n, region, g)) { areas[g]++; areas[h]--; }
+        if (regionConnected(n, region, h) && regionConnected(n, region, g)) { areas[g]++; areas[h]--; changed = true; }
         else region[r][c] = h;
       }
     }
+    if (!changed) break;
   }
   return region;
 }
@@ -424,6 +455,81 @@ function perturbOnce(n, regions, queenKeys) {
   return false;
 }
 
+// 面积抛光：唯一解达成后，把过大区域拆给邻居、过小区域补大，每步都验证唯一性保持。
+// 注意：重新划格可能让「某区 2 后、某区无后」的非法解变成合法解，所以必须逐步验证。
+function polishAreas(n, seeds, regions) {
+  const DIRS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  const seedKeys = new Set(seeds.map(s => s.r * n + s.c));
+  const maxA = Math.round(n * 1.9);
+  const minA = Math.max(2, Math.round(n * 0.45));
+  const count = () => {
+    const a = new Array(n).fill(0);
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) a[regions[r][c]]++;
+    return a;
+  };
+  let budget = 14; // 最多验证 / 转移 14 次，控制耗时
+  for (let iter = 0; iter < 8 && budget > 0; iter++) {
+    const areas = count();
+    let changed = false;
+    // 1) 超大区域把边缘格吐给面积最小的邻居
+    for (let g = 0; g < n && budget > 0; g++) {
+      if (areas[g] <= maxA) continue;
+      const cells = [];
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        if (regions[r][c] !== g || seedKeys.has(r * n + c)) continue;
+        const nb = new Set();
+        for (const [dr, dc] of DIRS) {
+          const rr = r + dr, cc = c + dc;
+          if (rr >= 0 && rr < n && cc >= 0 && cc < n && regions[rr][cc] !== g) nb.add(regions[rr][cc]);
+        }
+        if (nb.size) cells.push([r, c, nb]);
+      }
+      shuffleArr(cells);
+      for (const [r, c, nb] of cells) {
+        if (areas[g] <= maxA || budget <= 0) break;
+        const h = [...nb].sort((a, b) => areas[a] - areas[b])[0];
+        if (h === undefined) continue;
+        regions[r][c] = h;
+        budget--;
+        if (regionConnected(n, regions, g) && regionConnected(n, regions, h) &&
+            findSolutions(n, regions, 2).count === 1) {
+          areas[g]--; areas[h]++; changed = true;
+        } else {
+          regions[r][c] = g;
+        }
+      }
+    }
+    // 2) 过小区域从相邻大区借格子
+    for (let g = 0; g < n && budget > 0; g++) {
+      if (areas[g] >= minA) continue;
+      const cand = [];
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) {
+        const h = regions[r][c];
+        if (h === g) continue;
+        const adj = DIRS.some(([dr, dc]) => {
+          const rr = r + dr, cc = c + dc;
+          return rr >= 0 && rr < n && cc >= 0 && cc < n && regions[rr][cc] === g;
+        });
+        if (adj && areas[h] > minA + 1) cand.push([r, c, h]);
+      }
+      shuffleArr(cand);
+      for (const [r, c, h] of cand) {
+        if (areas[g] >= minA || budget <= 0) break;
+        if (areas[h] <= minA) continue;
+        regions[r][c] = g;
+        budget--;
+        if (regionConnected(n, regions, h) && regionConnected(n, regions, g) &&
+            findSolutions(n, regions, 2).count === 1) {
+          areas[g]++; areas[h]--; changed = true;
+        } else {
+          regions[r][c] = h;
+        }
+      }
+    }
+    if (!changed) break;
+  }
+}
+
 // 生成唯一解谜题：随机着色 + 局部改进消灭多余解 + 随机扰动跳出僵局
 // 引理：把多余解 T 的皇后格 g 重划入相邻区，只会消灭「以 g 为皇后」的解，
 // 不会产生新解，也不影响主解 S（g 不是 S 的皇后）→ 解数单调不增
@@ -440,9 +546,9 @@ function generatePuzzle(n, maxAttempts) {
     const cap = n >= 10 ? 6 : 3;
     const K = n >= 10 ? 8 : 2; // 大盘一次收集更多多余解批量消灭
     for (let step = 0; step < 400; step++) {
-      if (Date.now() - t0 > budget && fallback) return fallback;
+      if (Date.now() - t0 > budget && fallback) return polishResult(fallback);
       const res = findSolutions(n, regions, K);
-      if (res.count === 1) return { n, sol, regions };
+      if (res.count === 1) return polishResult({ n, sol, regions });
       fallback = { n, sol, regions };
       // 差异格并集：所有多余解 T≠S 中与 S 不同的皇后格
       const diffs = [];
@@ -473,7 +579,13 @@ function generatePuzzle(n, maxAttempts) {
       if (!moved && !perturbOnce(n, regions, queenKeys)) break; // 僵局且扰动失败，整体重来
     }
   }
-  return fallback; // 极小概率：退化为多解谜题（仍可玩）
+  return polishResult(fallback); // 极小概率：退化为多解谜题（仍可玩）
+}
+
+// 对结果做面积抛光（唯一解下不会破坏唯一性）
+function polishResult(p) {
+  if (p) polishAreas(p.n, p.sol.map((c, r) => ({ r, c })), p.regions);
+  return p;
 }
 /* ============ ALGO END ============ */
 
