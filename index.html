@@ -100,6 +100,7 @@
   }
   .cell:hover { filter: brightness(1.07); }
   .cell span { position: relative; z-index: 1; pointer-events: none; }
+  .cell.a span { color: rgba(255,255,255,.92); text-shadow: 0 1px 3px rgba(0,0,0,.3); font-weight: 700; }
   .cell.m span { color: rgba(30,20,60,.62); font-weight: 800; }
   .cell.q::before {
     content: "";
@@ -193,7 +194,7 @@
   </div>
   <p class="rules">
     🎯 <b>目标</b>：在每行、每列和每个颜色区域中<b>正好放置一个 Queen</b>。<br>
-    🖱️ <b>操作</b>：<b>单击</b>放置 X（标记无法放置 Queen 的位置），<b>双击</b>放置 Queen；再次单击 X 可取消，单击 Queen 可收回。桌面端也可<b>右键</b>直接放置/收回 Queen。<br>
+    🖱️ <b>操作</b>：<b>单击</b>放置 X（标记无法放置 Queen 的位置），<b>双击</b>放置 Queen；放置 Queen 后会自动把同行、同列、同色区的格子打上 ✕。再次单击 X 可取消，单击 Queen 可收回。桌面端也可<b>右键</b>直接放置/收回 Queen。<br>
     ⚠️ 两个 Queen <b>不能彼此相邻</b>，对角线相邻也不行。冲突的 Queen 会变红抖动。每局谜题唯一解！
   </p>
 </div>
@@ -670,6 +671,16 @@ function computeConflicts() {
   return bad;
 }
 
+// 该格是否被某个 Queen 攻击（同行 / 同列 / 同色区）→ 自动打 ✕
+function isAutoX(r, c) {
+  const reg = puzzle.regions[r][c];
+  for (const qk of queens) {
+    const qr = (qk / N) | 0, qc = qk % N;
+    if (qr === r || qc === c || puzzle.regions[qr][qc] === reg) return true;
+  }
+  return false;
+}
+
 function fmt(t) {
   const m = String(Math.floor(t / 60)).padStart(2, "0");
   const s = String(t % 60).padStart(2, "0");
@@ -691,6 +702,7 @@ function render() {
   for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
     const k = r * N + c, reg = puzzle.regions[r][c];
     const isQ = queens.has(k), isM = !isQ && marks.has(k);
+    const isA = !isQ && !isM && isAutoX(r, c);
     const top = r === 0 || puzzle.regions[r - 1][c] !== reg;
     const left = c === 0 || puzzle.regions[r][c - 1] !== reg;
     let cls = "cell", content = "";
@@ -699,6 +711,8 @@ function render() {
       content = "<span>👑</span>";
     } else if (isM) {
       cls += " m"; content = "<span>✕</span>";
+    } else if (isA) {
+      cls += " a"; content = "<span>✕</span>";
     }
     const style = `background:${regionColors[reg]};` +
       (top ? "border-top-color:#fff;" : "") + (left ? "border-left-color:#fff;" : "");
