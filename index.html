@@ -195,7 +195,7 @@
   <div class="statusbar">
     <span id="timer">⏱ 00:00</span>
     <span id="progress"></span>
-    <span id="ver" title="页面版本">v1.3 对角版</span>
+    <span id="ver" title="页面版本">v1.4 点区版</span>
   </div>
   <div class="boardWrap">
     <div id="board" class="board"></div>
@@ -208,7 +208,7 @@
   </div>
   <p class="rules">
     🎯 <b>目标</b>：在每行、每列和每个颜色区域中<b>正好放置一个 Queen</b>。<br>
-    🖱️ <b>操作</b>：<b>单击</b>放置 X（标记无法放置 Queen 的位置），<b>双击</b>放置 Queen；放置 Queen 后会自动把同行、同列、同色区以及周围相邻（含对角）的格子打上 ✕。再次单击 X 可取消，单击 Queen 可收回。桌面端也可<b>右键</b>直接放置/收回 Queen。<br>
+    🖱️ <b>操作</b>：<b>单击</b>放置 X（标记无法放置 Queen 的位置），并同时把<b>整块同色区</b>一起标上 ✕；<b>双击</b>放置 Queen。放置 Queen 后会自动把同行、同列、同色区以及周围相邻（含对角）的格子打上 ✕。再次单击可取消整区标记，单击 Queen 可收回。桌面端也可<b>右键</b>直接放置/收回 Queen。<br>
     ⚠️ 两个 Queen <b>不能彼此相邻</b>，对角线相邻也不行。冲突的 Queen 会变红抖动。每局谜题唯一解！
   </p>
 </div>
@@ -616,6 +616,7 @@ let puzzle = null;
 let regionColors = null;
 let queens = new Set();   // key = r*N+c
 let marks = new Set();    // 手动 ✕
+let litRegions = new Set(); // 被单击点亮的色区：该区所有格子显示自动 ✕
 let won = false;
 let sec = 0, timerInt = null, started = false;
 let lastPlaced = -1;
@@ -718,7 +719,7 @@ function render() {
   for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
     const k = r * N + c, reg = puzzle.regions[r][c];
     const isQ = queens.has(k), isM = !isQ && marks.has(k);
-    const isA = !isQ && !isM && isAutoX(r, c);
+    const isA = !isQ && !isM && (isAutoX(r, c) || litRegions.has(reg));
     const top = r === 0 || puzzle.regions[r - 1][c] !== reg;
     const left = c === 0 || puzzle.regions[r][c - 1] !== reg;
     let cls = "cell", content = "";
@@ -791,9 +792,13 @@ function clickCell(k) {
     queens.delete(k);
     lastPlaced = -1;
   } else if (marks.has(k)) {
+    // 取消该格标记 → 同时熄灭该色区
     marks.delete(k);
+    litRegions.delete(puzzle.regions[(k / N) | 0][k % N]);
   } else {
+    // 单击标记该格，并点亮整个同色区
     marks.add(k);
+    litRegions.add(puzzle.regions[(k / N) | 0][k % N]);
   }
   update();
 }
@@ -818,6 +823,7 @@ function newGame(n) {
   regionColors = assignColors(puzzle.regions);
   queens = new Set();
   marks = new Set();
+  litRegions = new Set();
   won = false; sec = 0; started = false; lastPlaced = -1;
   lastTap = { k: -1, t: 0 };
   stopTimer();
@@ -831,7 +837,7 @@ sizeEl.addEventListener("change", () => newGame(+sizeEl.value));
 document.getElementById("btnNew").addEventListener("click", () => newGame(N));
 document.getElementById("btnNext").addEventListener("click", () => newGame(N));
 document.getElementById("btnRestart").addEventListener("click", () => {
-  queens = new Set(); marks = new Set(); won = false; lastPlaced = -1;
+  queens = new Set(); marks = new Set(); litRegions = new Set(); won = false; lastPlaced = -1;
   lastTap = { k: -1, t: 0 };
   stopTimer(); sec = 0; started = false;
   timerEl.textContent = "⏱ 00:00";
